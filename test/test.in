@@ -1,0 +1,40 @@
+# This is a LAMMPS input script to test the "lj/cos_sq" pair style
+#
+# It generates 2 output files:
+#
+#  - "interaction.dat" which contains the output of the "pair_write" command and
+#     which the "plot_interaction.py" uses as the input for generating a plot of
+#     the style's potential and force
+#
+#  - "test.xyz" which contains the dumps from a short simulation of 10 particles
+#     interacting via the "lj/cos_sq" pair style (effective radius = 1.0)
+
+units lj
+atom_style atomic
+pair_style lj/cos_sq 4.0
+
+variable pair_write_output index "interaction.dat"
+variable dump_output index "test.xyz"
+variable seed equal 12345
+
+dimension 3
+region box block -5 5 -5 5 -5 5
+boundary p p p
+create_box 1 box
+
+mass * 1.0
+pair_coeff * * 10.0 2.0 3.5
+
+pair_write 1 1 1000 r 0.1 4.0 ${pair_write_output} "lj/cut_sq"
+
+create_atoms 1 random 10 ${seed} box
+
+fix thermostat all langevin 1.0 1.0 1.0 ${seed}
+fix dynamics all nve
+
+dump dump_cmd all xyz 10 ${dump_output}
+
+thermo_style custom step atoms pe temp
+thermo 100
+
+run 10000
