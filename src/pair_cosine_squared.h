@@ -11,12 +11,12 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 /* ----------------------------------------------------------------------
-   Contributing authors: Eugen Rožić (University College London)
+   Contributing authors: Eugen Rozic (University College London)
 ------------------------------------------------------------------------- */
 
 #ifdef PAIR_CLASS
 
-PairStyle(lj/cos_sq,PairLJCosSq)
+PairStyle(cosine/squared, PairCosineSquared)
 
 #else
 
@@ -27,14 +27,14 @@ PairStyle(lj/cos_sq,PairLJCosSq)
 
 namespace LAMMPS_NS {
 
-class PairLJCosSq : public Pair {
+class PairCosineSquared : public Pair {
  public:
-  PairLJCosSq(class LAMMPS *);
-  virtual ~PairLJCosSq();
+  PairCosineSquared(class LAMMPS *);
+  virtual ~PairCosineSquared();
   virtual void compute(int, int);
   void settings(int, char **);
   void coeff(int, char **);
-//void init_style();
+  // void init_style();
   double init_one(int, int);
   void modify_params(int, char **);
   void write_restart(FILE *);
@@ -44,7 +44,7 @@ class PairLJCosSq : public Pair {
   void write_data(FILE *);
   void write_data_all(FILE *);
   double single(int, int, int, int, double, double, double, double &);
-//void *extract(const char *, int &);
+  // void *extract(const char *, int &);
 
 /* RESPA stuff not implemented...
   void compute_inner();
@@ -54,14 +54,15 @@ class PairLJCosSq : public Pair {
 
  protected:
   double cut_global;
+  int wca_flag = 0;
   double **cut;
-  double **epsilon,**sigma, **w;
+  double **epsilon, **sigma, **w;
   double **lj12_e, **lj6_e, **lj12_f, **lj6_f;
 
   virtual void allocate();
 };
 
-}
+}  // namespace LAMMPS_NS
 
 #endif
 #endif
@@ -78,17 +79,18 @@ E: Incorrect args for pair coefficients
 
 Self-explanatory.  Check the input script or data file.
 
-E: Mixing not supported in pair_style lj/cos_sq
+E: Mixing not supported in pair_style cosine/squared
 
 Self-explanatory. All coefficients need to be specified explicitly.
 
-E: pair_modify mix not supported for pair_style lj/cos_sq
+E: pair_modify mix not supported for pair_style cosine/squared
 
 Same as above, only when calling "pair_modify" command
 
-W: pair_modify shift/tail is meaningless for pair_style lj/cos_sq
+W: pair_modify shift/tail is meaningless for pair_style cosine/squared
 
 This style by definition gets to zero at cutoff distance, so there is nothing
 to shift and there is no tail contribution
 
 */
+

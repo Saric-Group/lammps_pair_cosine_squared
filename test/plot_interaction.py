@@ -35,7 +35,7 @@ with open(args.data_file, 'r') as data_file:
             min_E = Es[i]
 
 axis_font = {'size':12}
-fig = plt.figure('LAMMPS lj/cos_sq interaction force & potential', figsize=(10,8))
+fig = plt.figure(name+' interaction force & potential', figsize=(10,8))
 
 plt.plot(rs, Es, 'k-', linewidth=1.5, label='potential')
 plt.plot(rs, Fs, 'k--', linewidth=1.5, label='force')
