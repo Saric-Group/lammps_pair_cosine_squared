@@ -1,33 +1,43 @@
 # This is a LAMMPS input script to test the "cosine/squared" pair style.
 #
-# It generates 2 output files:
+# It generates 3 output files:
 #
-#  - "interaction.dat" which contains the output of the "pair_write" command and
+#  - "interaction_wca.dat" which contains the output of the "pair_write" command and
 #     which the "plot_interaction.py" uses as the input for generating a plot of
-#     the style's potential and force
+#     the style's potential and force (with "wca")
 #
-#  - "test.xyz" which contains the dumps from a short simulation of 10 particles
-#     interacting via the "cosine/squared" pair style (with effective radius of 1.0)
+#  - "interaction_no_wca.dat" which is the same as above only without the "wca" option
+#     selected
+#
+#  - "test.xyz" which contains the dumps from a short simulation of 20 particles (with
+#     effective radius of 1.0) interacting via the "cosine/squared" interaction. Half of
+#     them (type 1) have the "wca" option included, and the other half (type 2) don't, and
+#     there is no cross interaction (so two blobs should form)
 
 units lj
 atom_style atomic
-pair_style cosine/squared 4.0 wca no #(optional "wca yes/no")
+pair_style cosine/squared 4.0
 
-variable pair_write_output index "interaction.dat"
+variable output_wca index "interaction_wca.dat"
+variable output_no_wca index "interaction_no_wca.dat"
 variable dump_output index "test.xyz"
 variable seed equal 12345
 
 dimension 3
 region box block -5 5 -5 5 -5 5
 boundary p p p
-create_box 1 box
+create_box 2 box
 
 mass * 1.0
-pair_coeff * * 10.0 2.0 3.5
+pair_coeff 1 1 10.0 2.0 3.5 wca
+pair_coeff 2 2 10.0 2.0 3.5
+pair_coeff 1 2 0.0 2.0 3.5
 
-pair_write 1 1 1000 r 0.1 4.0 ${pair_write_output} "cosine/squared"
+pair_write 1 1 1000 r 0.1 4.0 ${output_wca} "cosine/squared with wca"
+pair_write 2 2 1000 r 0.1 4.0 ${output_no_wca} "cosine/squared w/o wca"
 
 create_atoms 1 random 10 ${seed} box
+create_atoms 2 random 10 $(v_seed+1) box
 
 fix thermostat all langevin 1.0 1.0 1.0 ${seed}
 fix dynamics all nve

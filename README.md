@@ -16,15 +16,15 @@ It is has been tested on the `16Mar2018` stable release and the master branch as
 
 The name of the interaction in LAMMPS is `cosine/squared`, and the signature of the `pair_style` command is the follwing:
 ```
-pair_style cosine/squared <cutoff> (wca yes/no)
+pair_style cosine/squared <cutoff>
 ```
-where _cutoff_ is the global cutoff for all particle type pairs and _wca_ is an optional parameter which, if chosen, makes the pair style include a repulsive Weeks-Chandler-Andersen part to the interaction.
+where _cutoff_ is the global cutoff for all particle type pairs.
 
 The signature of the `pair_coeff` command is:
 ```
-pair_coeff <type_1> <type_2> <eps> <sigma> <cutoff>
+pair_coeff <type_1> <type_2> <eps> <sigma> <cutoff>(opt) "wca"(opt)
 ```
-where _type\_1_ and _type\_2_ are particle types, _eps_ is the interaction strength (depth), _sigma_ is the distance at which the minimum is achieved, and _cutoff_ (optional) is the distance at which the potential vanishes (if different from the global cutoff).
+where _type\_1_ and _type\_2_ are particle types, _eps_ is the interaction strength (depth), _sigma_ is the distance at which the minimum is achieved, _cutoff_ (optional) is the distance at which the potential vanishes (if different from the global cutoff) and _"wca"_ (optional) makes the pair style include a repulsive Weeks-Chandler-Andersen part to the interaction.
 
 An example LAMMPS input script using the pair style, along with a tool to plot the interaction force and potential, can be found in the **test** directory.
 

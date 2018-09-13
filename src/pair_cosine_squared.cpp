@@ -50,16 +50,286 @@ PairCosineSquared::~PairCosineSquared()
     memory->destroy(setflag);
     memory->destroy(cutsq);
 
-    memory->destroy(cut);
     memory->destroy(epsilon);
     memory->destroy(sigma);
     memory->destroy(w);
+    memory->destroy(cut);
+    memory->destroy(wcaflag);
 
     memory->destroy(lj12_e);
     memory->destroy(lj6_e);
     memory->destroy(lj12_f);
     memory->destroy(lj6_f);
   }
+}
+
+/* ----------------------------------------------------------------------
+   allocate all arrays
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::allocate()
+{
+  allocated = 1;
+  int n = atom->ntypes;
+  memory->create(setflag, n+1, n+1, "pair:setflag");
+  memory->create(cutsq, n+1, n+1, "pair:cutsq");
+
+  memory->create(cut, n+1, n+1, "pair:cut");
+  memory->create(epsilon, n+1, n+1, "pair:epsilon");
+  memory->create(sigma, n+1, n+1, "pair:sigma");
+  memory->create(w, n+1, n+1, "pair:w");
+  memory->create(wcaflag, n+1, n+1, "pair:wcaflag");
+
+  memory->create(lj12_e, n+1, n+1, "pair:lj12_e");
+  memory->create(lj6_e, n+1, n+1, "pair:lj6_e");
+  memory->create(lj12_f, n+1, n+1, "pair:lj12_f");
+  memory->create(lj6_f, n+1, n+1, "pair:lj6_f");
+
+  for (int i = 1; i <= n; i++) {
+    for (int j = i; j <= n; j++) {
+      setflag[i][j] = 0;
+      wcaflag[i][j] = 0;
+    }
+  }
+}
+
+/* ----------------------------------------------------------------------
+   global settings
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::settings(int narg, char **arg)
+{
+  if (narg != 1) {
+    error->all(FLERR, "Illegal pair_style command (wrong number of params)");
+  }
+
+  cut_global = force->numeric(FLERR, arg[0]);
+
+  // reset cutoffs that have been explicitly set
+
+  if (allocated) {
+    int i, j;
+    for (i = 1; i <= atom->ntypes; i++)
+      for (j = i+1; j <= atom->ntypes; j++)
+        if (setflag[i][j])
+          cut[i][j] = cut_global;
+  }
+}
+
+
+/* ----------------------------------------------------------------------
+   set coeffs for one or more type pairs
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::coeff(int narg, char **arg)
+{
+  if (narg < 4 || narg > 6)
+    error->all(FLERR, "Incorrect args for pair coefficients (too few or too many)");
+  
+  if (!allocated)
+    allocate();
+
+  int ilo, ihi, jlo, jhi;
+  force->bounds(FLERR, arg[0], atom->ntypes, ilo, ihi);
+  force->bounds(FLERR, arg[1], atom->ntypes, jlo, jhi);
+
+  double epsilon_one = force->numeric(FLERR, arg[2]);
+  double sigma_one = force->numeric(FLERR, arg[3]);
+
+  double cut_one = cut_global;
+  double wca_one = 0;
+  if (narg == 6) {
+    cut_one = force->numeric(FLERR, arg[4]);
+    if (strcmp(arg[5], "wca") == 0) {
+      wca_one = 1;
+    } else {
+      error->all(FLERR, "Incorrect args for pair coefficients (unknown option)");
+    }
+  } else if (narg == 5) {
+    if (strcmp(arg[4], "wca") == 0) {
+      wca_one = 1;
+    } else {
+      cut_one = force->numeric(FLERR, arg[4]);
+    }
+  }
+
+  if (cut_one <= sigma_one)
+    error->all(FLERR, "Incorrect args for pair coefficients (cutoff <= sigma)");
+
+  int count = 0;
+  for (int i = ilo; i <= ihi; i++) {
+    for (int j = MAX(jlo,i); j <= jhi; j++) {
+      epsilon[i][j] = epsilon_one;
+      sigma[i][j] = sigma_one;
+      cut[i][j] = cut_one;
+      wcaflag[i][j] = wca_one;
+      setflag[i][j] = 1;
+      count++;
+    }
+  }
+
+  if (count == 0)
+    error->all(FLERR, "Incorrect args for pair coefficients (none set)");
+}
+
+/* ----------------------------------------------------------------------
+   init specific to this pair style (unneccesary)
+------------------------------------------------------------------------- */
+
+/*
+void PairCosineSquared::init_style()
+{
+  neighbor->request(this,instance_me);
+}
+*/
+
+/* ----------------------------------------------------------------------
+   init for one type pair i,j and corresponding j,i
+------------------------------------------------------------------------- */
+
+double PairCosineSquared::init_one(int i, int j)
+{
+  if (setflag[i][j] == 0)
+    error->all(FLERR, "Mixing not supported in pair_style cosine/squared");
+
+  epsilon[j][i] = epsilon[i][j];
+  sigma[j][i] = sigma[i][j];
+  cut[j][i] = cut[i][j];
+  wcaflag[j][i] = wcaflag[i][j];
+
+  w[j][i] = w[i][j] = cut[i][j] - sigma[i][j];
+
+  if (wcaflag[i][j]) {
+    lj12_e[j][i] = lj12_e[i][j] = epsilon[i][j] * pow(sigma[i][j], 12.0);
+    lj6_e[j][i] = lj6_e[i][j] = 2.0 * epsilon[i][j] * pow(sigma[i][j], 6.0);
+    lj12_f[j][i] = lj12_f[i][j] = 12.0 * epsilon[i][j] * pow(sigma[i][j], 12.0);
+    lj6_f[j][i] = lj6_f[i][j] = 12.0 * epsilon[i][j] * pow(sigma[i][j], 6.0);
+  }
+
+  // Note: cutsq is set in pair.cpp
+
+  return cut[i][j];
+}
+
+/* ----------------------------------------------------------------------
+   this is here to throw errors & warnings for given options
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::modify_params(int narg, char **arg)
+{
+  Pair::modify_params(narg, arg);
+
+  int iarg = 0;
+  while (iarg < narg) {
+    if (strcmp(arg[iarg], "mix") == 0) {
+      error->all(FLERR, "pair_modify mix not supported for pair_style cosine/squared");
+    } else if (strcmp(arg[iarg], "shift") == 0) {
+      error->warning(FLERR, "pair_modify shift is meaningless for pair_style cosine/squared");
+      offset_flag = 0;
+    } else if (strcmp(arg[iarg], "tail") == 0) {
+      error->warning(FLERR, "pair_modify tail is meaningless for pair_style cosine/squared");
+      tail_flag = 0;
+    }
+    iarg++;
+  }
+}
+
+/* ----------------------------------------------------------------------
+   proc 0 writes to restart file
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::write_restart(FILE *fp)
+{
+  write_restart_settings(fp);
+
+  int i, j;
+  for (i = 1; i <= atom->ntypes; i++)
+    for (j = i; j <= atom->ntypes; j++) {
+      fwrite(&setflag[i][j], sizeof(int), 1, fp);
+      if (setflag[i][j]) {
+        fwrite(&epsilon[i][j], sizeof(double), 1, fp);
+        fwrite(&sigma[i][j], sizeof(double), 1, fp);
+        fwrite(&cut[i][j], sizeof(double), 1, fp);
+        fwrite(&wcaflag[i][j], sizeof(int), 1, fp);
+      }
+    }
+}
+
+/* ----------------------------------------------------------------------
+   proc 0 reads from restart file, bcasts
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::read_restart(FILE *fp)
+{
+  read_restart_settings(fp);
+  allocate();
+
+  int i,j;
+  int me = comm->me;
+  for (i = 1; i <= atom->ntypes; i++) {
+    for (j = i; j <= atom->ntypes; j++) {
+      if (me == 0)
+        fread(&setflag[i][j], sizeof(int), 1, fp);
+      MPI_Bcast(&setflag[i][j], 1, MPI_INT, 0, world);
+      if (setflag[i][j]) {
+        if (me == 0) {
+          fread(&epsilon[i][j], sizeof(double), 1, fp);
+          fread(&sigma[i][j], sizeof(double), 1, fp);
+          fread(&cut[i][j], sizeof(double), 1, fp);
+          fread(&wcaflag[i][j], sizeof(int), 1, fp);
+        }
+        MPI_Bcast(&epsilon[i][j], 1, MPI_DOUBLE, 0, world);
+        MPI_Bcast(&sigma[i][j], 1, MPI_DOUBLE, 0, world);
+        MPI_Bcast(&cut[i][j], 1, MPI_DOUBLE, 0, world);
+        MPI_Bcast(&wcaflag[i][j], 1, MPI_INT, 0, world);
+      }
+    }
+  }
+}
+
+/* ----------------------------------------------------------------------
+   proc 0 writes to restart file
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::write_restart_settings(FILE *fp)
+{
+  fwrite(&cut_global, sizeof(double), 1, fp);
+}
+
+/* ----------------------------------------------------------------------
+   proc 0 reads from restart file, bcasts
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::read_restart_settings(FILE *fp)
+{
+  int me = comm->me;
+  if (me == 0) {
+    fread(&cut_global, sizeof(double), 1, fp);
+  }
+  MPI_Bcast(&cut_global, 1, MPI_DOUBLE, 0, world);
+}
+
+/* ----------------------------------------------------------------------
+   proc 0 writes to data file
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::write_data(FILE *fp)
+{
+  for (int i = 1; i <= atom->ntypes; i++)
+    fprintf(fp, "%d %g %g %g %d\n", i, epsilon[i][i], sigma[i][i],
+            cut[i][i], wcaflag[i][i]);
+}
+
+/* ----------------------------------------------------------------------
+   proc 0 writes all pairs to data file
+------------------------------------------------------------------------- */
+
+void PairCosineSquared::write_data_all(FILE *fp)
+{
+  for (int i = 1; i <= atom->ntypes; i++)
+    for (int j = i; j <= atom->ntypes; j++)
+      fprintf(fp, "%d %d %g %g %g %d\n", i, j, epsilon[i][j], sigma[i][j],
+              cut[i][j], wcaflag[i][j]);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -123,7 +393,7 @@ void PairCosineSquared::compute(int eflag, int vflag)
         r = sqrt(rsq);
 
         if (r <= sigma[itype][jtype]) {
-          if (wca_flag) {
+          if (wcaflag[itype][jtype]) {
             r2inv = 1.0/rsq;
             r6inv = r2inv*r2inv*r2inv;
             force_lj = r6inv*(lj12_f[itype][jtype]*r6inv - lj6_f[itype][jtype]);
@@ -168,262 +438,9 @@ void PairCosineSquared::compute(int eflag, int vflag)
     virial_fdotr_compute();
 }
 
-
-
 /* ----------------------------------------------------------------------
-   allocate all arrays
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::allocate()
-{
-  allocated = 1;
-  int n = atom->ntypes;
-  memory->create(setflag, n+1, n+1, "pair:setflag");
-  for (int i = 1; i <= n; i++)
-    for (int j = i; j <= n; j++)
-      setflag[i][j] = 0;
-  memory->create(cutsq, n+1, n+1, "pair:cutsq");
-  memory->create(cut, n+1, n+1, "pair:cut");
-  memory->create(epsilon, n+1, n+1, "pair:epsilon");
-  memory->create(sigma, n+1, n+1, "pair:sigma");
-  memory->create(w, n+1, n+1, "pair:w");
-
-  memory->create(lj12_e, n+1, n+1, "pair:lj12_e");
-  memory->create(lj6_e, n+1, n+1, "pair:lj6_e");
-  memory->create(lj12_f, n+1, n+1, "pair:lj12_f");
-  memory->create(lj6_f, n+1, n+1, "pair:lj6_f");
-}
-
-/* ----------------------------------------------------------------------
-   global settings
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::settings(int narg, char **arg)
-{
-  if (narg == 3) {
-    if (strcmp(arg[1], "wca") == 0) {
-      if (strcmp(arg[2], "yes") == 0) {
-        wca_flag = 1;
-      } else if (strcmp(arg[2], "no") == 0) {
-        wca_flag = 0;
-      } else {
-        error->all(FLERR, "Illegal pair_style command (wca has to be 'yes' or 'no')");
-      }
-    } else {
-      error->all(FLERR, "Illegal pair_style command (unknown option)");
-    }
-  } else if (narg != 1) {
-    error->all(FLERR, "Illegal pair_style command (wrong number of params)");
-  }
-
-  cut_global = force->numeric(FLERR, arg[0]);
-
-  // reset cutoffs that have been explicitly set
-
-  if (allocated) {
-    int i, j;
-    for (i = 1; i <= atom->ntypes; i++)
-      for (j = i+1; j <= atom->ntypes; j++)
-        if (setflag[i][j]) cut[i][j] = cut_global;
-  }
-}
-
-
-/* ----------------------------------------------------------------------
-   set coeffs for one or more type pairs
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::coeff(int narg, char **arg)
-{
-  if (narg < 4 || narg > 5)
-    error->all(FLERR, "Incorrect args for pair coefficients (too few or too many)");
-  if (!allocated) allocate();
-
-  int ilo, ihi, jlo, jhi;
-  force->bounds(FLERR, arg[0], atom->ntypes, ilo, ihi);
-  force->bounds(FLERR, arg[1], atom->ntypes, jlo, jhi);
-
-  double epsilon_one = force->numeric(FLERR, arg[2]);
-  double sigma_one = force->numeric(FLERR, arg[3]);
-
-  double cut_one = cut_global;
-  if (narg == 5) cut_one = force->numeric(FLERR, arg[4]);
-
-  if (cut_one <= sigma_one)
-    error->all(FLERR, "Incorrect args for pair coefficients (cutoff <= sigma)");
-
-  int count = 0;
-  for (int i = ilo; i <= ihi; i++) {
-    for (int j = MAX(jlo,i); j <= jhi; j++) {
-      epsilon[i][j] = epsilon_one;
-      sigma[i][j] = sigma_one;
-      cut[i][j] = cut_one;
-      setflag[i][j] = 1;
-      count++;
-    }
-  }
-
-  if (count == 0)
-    error->all(FLERR, "Incorrect args for pair coefficients (none set)");
-}
-
-/* ----------------------------------------------------------------------
-   init specific to this pair style (unneccesary)
-------------------------------------------------------------------------- */
-
-/*
-void PairCosineSquared::init_style()
-{
-  neighbor->request(this,instance_me);
-}
-*/
-
-/* ----------------------------------------------------------------------
-   init for one type pair i,j and corresponding j,i
-------------------------------------------------------------------------- */
-
-double PairCosineSquared::init_one(int i, int j)
-{
-  if (setflag[i][j] == 0)
-    error->all(FLERR, "Mixing not supported in pair_style cosine/squared");
-
-  epsilon[j][i] = epsilon[i][j];
-  sigma[j][i] = sigma[i][j];
-  cut[j][i] = cut[i][j];
-
-  w[j][i] = w[i][j] = cut[i][j] - sigma[i][j];
-
-  lj12_e[j][i] = lj12_e[i][j] = epsilon[i][j] * pow(sigma[i][j], 12.0);
-  lj6_e[j][i] = lj6_e[i][j] = 2.0 * epsilon[i][j] * pow(sigma[i][j], 6.0);
-  lj12_f[j][i] = lj12_f[i][j] = 12.0 * epsilon[i][j] * pow(sigma[i][j], 12.0);
-  lj6_f[j][i] = lj6_f[i][j] = 12.0 * epsilon[i][j] * pow(sigma[i][j], 6.0);
-
-  // Note: cutsq is set in pair.cpp
-
-  return cut[i][j];
-}
-
-/* ----------------------------------------------------------------------
-   this is here to throw errors & warnings for given options
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::modify_params(int narg, char **arg)
-{
-  Pair::modify_params(narg, arg);
-
-  int iarg = 0;
-  while (iarg < narg) {
-    if (strcmp(arg[iarg], "mix") == 0) {
-      error->all(FLERR, "pair_modify mix not supported for pair_style cosine/squared");
-    } else if (strcmp(arg[iarg], "shift") == 0) {
-      error->warning(FLERR, "pair_modify shift is meaningless for pair_style cosine/squared");
-      offset_flag = 0;
-    } else if (strcmp(arg[iarg], "tail") == 0) {
-      error->warning(FLERR, "pair_modify tail is meaningless for pair_style cosine/squared");
-      tail_flag = 0;
-    }
-    iarg++;
-  }
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 writes to restart file
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::write_restart(FILE *fp)
-{
-  write_restart_settings(fp);
-
-  int i, j;
-  for (i = 1; i <= atom->ntypes; i++)
-    for (j = i; j <= atom->ntypes; j++) {
-      fwrite(&setflag[i][j], sizeof(int), 1, fp);
-      if (setflag[i][j]) {
-        fwrite(&epsilon[i][j], sizeof(double), 1, fp);
-        fwrite(&sigma[i][j], sizeof(double), 1, fp);
-        fwrite(&cut[i][j], sizeof(double), 1, fp);
-      }
-    }
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 reads from restart file, bcasts
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::read_restart(FILE *fp)
-{
-  read_restart_settings(fp);
-  allocate();
-
-  int i,j;
-  int me = comm->me;
-  for (i = 1; i <= atom->ntypes; i++) {
-    for (j = i; j <= atom->ntypes; j++) {
-      if (me == 0) fread(&setflag[i][j], sizeof(int), 1, fp);
-      MPI_Bcast(&setflag[i][j], 1, MPI_INT, 0, world);
-      if (setflag[i][j]) {
-        if (me == 0) {
-          fread(&epsilon[i][j], sizeof(double), 1, fp);
-          fread(&sigma[i][j], sizeof(double), 1, fp);
-          fread(&cut[i][j], sizeof(double), 1, fp);
-        }
-        MPI_Bcast(&epsilon[i][j], 1, MPI_DOUBLE, 0, world);
-        MPI_Bcast(&sigma[i][j], 1, MPI_DOUBLE, 0, world);
-        MPI_Bcast(&cut[i][j], 1, MPI_DOUBLE, 0, world);
-      }
-    }
-  }
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 writes to restart file
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::write_restart_settings(FILE *fp)
-{
-  fwrite(&cut_global, sizeof(double), 1, fp);
-  fwrite(&wca_flag, sizeof(int), 1, fp);
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 reads from restart file, bcasts
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::read_restart_settings(FILE *fp)
-{
-  int me = comm->me;
-  if (me == 0) {
-    fread(&cut_global, sizeof(double), 1, fp);
-    fread(&wca_flag, sizeof(int), 1, fp);
-  }
-  MPI_Bcast(&cut_global, 1, MPI_DOUBLE, 0, world);
-  MPI_Bcast(&wca_flag, 1, MPI_INT, 0, world);
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 writes to data file
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::write_data(FILE *fp)
-{
-  for (int i = 1; i <= atom->ntypes; i++)
-    fprintf(fp, "%d %g %g\n", i, epsilon[i][i], sigma[i][i]);
-}
-
-/* ----------------------------------------------------------------------
-   proc 0 writes all pairs to data file
-------------------------------------------------------------------------- */
-
-void PairCosineSquared::write_data_all(FILE *fp)
-{
-  for (int i = 1; i <= atom->ntypes; i++)
-    for (int j = i; j <= atom->ntypes; j++)
-      fprintf(fp, "%d %d %g %g %g\n", i, j, epsilon[i][j], sigma[i][j], cut[i][j]);
-}
-
-/* ----------------------------------------------------------------------
-   this method is called only if rsq < cutsq[itype][jtype],
-   so no need to make that check explicitly
+   This is used be pair_write;
+   it is called only if rsq < cutsq[itype][jtype], no need to check that
 ------------------------------------------------------------------------- */
 
 double PairCosineSquared::single(int i, int j, int itype, int jtype, double rsq,
@@ -435,7 +452,7 @@ double PairCosineSquared::single(int i, int j, int itype, int jtype, double rsq,
   r = sqrt(rsq);
 
   if (r <= sigma[itype][jtype]) {
-    if (wca_flag) {
+    if (wcaflag[itype][jtype]) {
       r2inv = 1.0/rsq;
       r6inv = r2inv*r2inv*r2inv;
       force = r6inv*(lj12_f[itype][jtype]*r6inv - lj6_f[itype][jtype])*r2inv;

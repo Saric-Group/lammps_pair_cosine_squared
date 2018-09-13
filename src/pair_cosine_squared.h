@@ -31,7 +31,6 @@ class PairCosineSquared : public Pair {
  public:
   PairCosineSquared(class LAMMPS *);
   virtual ~PairCosineSquared();
-  virtual void compute(int, int);
   void settings(int, char **);
   void coeff(int, char **);
   // void init_style();
@@ -43,6 +42,7 @@ class PairCosineSquared : public Pair {
   void read_restart_settings(FILE *);
   void write_data(FILE *);
   void write_data_all(FILE *);
+  virtual void compute(int, int);
   double single(int, int, int, int, double, double, double, double &);
   // void *extract(const char *, int &);
 
@@ -54,9 +54,8 @@ class PairCosineSquared : public Pair {
 
  protected:
   double cut_global;
-  int wca_flag = 0;
-  double **cut;
-  double **epsilon, **sigma, **w;
+  double **epsilon, **sigma, **w, **cut;
+  int **wcaflag;
   double **lj12_e, **lj6_e, **lj12_f, **lj6_f;
 
   virtual void allocate();
